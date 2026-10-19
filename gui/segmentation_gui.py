@@ -119,6 +119,10 @@ def resolve_repo_path(value: str | Path) -> Path:
     return path if path.is_absolute() else APP_ROOT / path
 
 
+def is_absolute_output_path(value: str) -> bool:
+    return bool(value.strip()) and Path(value).expanduser().is_absolute()
+
+
 def build_launcher_command(mode_flag: str, command_arguments: list[str]) -> list[str]:
     if IS_FROZEN:
         return [sys.executable, mode_flag, *command_arguments]
@@ -226,6 +230,9 @@ class SegmentationWindow(QMainWindow):
         form_layout.addRow("Weights", weight_container)
 
         self.project_edit = QLineEdit(str(self.config["inference"]["default_project"]))  # type: ignore[index]
+        if IS_FROZEN:
+            self.project_edit.clear()
+            self.project_edit.setPlaceholderText("Enter a full output path, for example C:\\Users\\you\\Pictures\\avalanche-output")
         project_browse = QPushButton("Browse")
         project_browse.clicked.connect(self._browse_project)
         project_row = QHBoxLayout()
@@ -486,6 +493,13 @@ class SegmentationWindow(QMainWindow):
     def _run_predict(self) -> None:
         if not self.source_edit.text().strip():
             QMessageBox.warning(self, "Missing source", "Choose an image before running segmentation.")
+            return
+        if IS_FROZEN and not is_absolute_output_path(self.project_edit.text()):
+            QMessageBox.warning(
+                self,
+                "Missing output folder",
+                "Enter a full output path before running the packaged app.",
+            )
             return
         self._start_process(self._predict_launch_command(), "Segmentation")
 
