@@ -29,11 +29,13 @@ Usage - formats:
 """
 
 import argparse
+import json
 import os
 import platform
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 
 FILE = Path(__file__).resolve()
@@ -64,6 +66,7 @@ def run(
     device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
     view_img=False,  # show results
     save_txt=False,  # save results to *.txt
+    save_json=False,  # save results to VOTT-style *.json
     save_conf=False,  # save confidences in --save-txt labels
     save_crop=False,  # save cropped prediction boxes
     nosave=False,  # do not save images/videos
@@ -94,7 +97,11 @@ def run(
 
     # Directories
     save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    save_dir.mkdir(parents=True, exist_ok=True)
+    if save_txt:
+        (save_dir / 'labels').mkdir(parents=True, exist_ok=True)
+    if save_json:
+        (save_dir / 'json').mkdir(parents=True, exist_ok=True)
 
     # Load model
     device = select_device(device)
@@ -152,6 +159,7 @@ def run(
             s += '%gx%g ' % im.shape[2:]  # print string
             imc = im0.copy() if save_crop else im0  # for save_crop
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
+            regions = []
             if len(det):
                 if retina_masks:
                     # scale bbox first the crop masks
@@ -162,10 +170,9 @@ def run(
                     det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
 
                 # Segments
-                if save_txt:
-                    segments = [
-                        scale_segments(im0.shape if retina_masks else im.shape[2:], x, im0.shape, normalize=True)
-                        for x in reversed(masks2segments(masks))]
+                segments = [
+                    scale_segments(im0.shape if retina_masks else im.shape[2:], x.copy(), im0.shape, normalize=False)
+                    for x in reversed(masks2segments(masks))]
 
                 # Print results
                 for c in det[:, 5].unique():
@@ -181,19 +188,63 @@ def run(
 
                 # Write results
                 for j, (*xyxy, conf, cls) in enumerate(reversed(det[:, :6])):
+                    segment = segments[j] if j < len(segments) else None
                     if save_txt:  # Write to file
-                        seg = segments[j].reshape(-1)  # (n,2) to (n*2)
+                        seg = segment.copy()
+                        seg[:, 0] /= im0.shape[1]
+                        seg[:, 1] /= im0.shape[0]
+                        seg = seg.reshape(-1)  # (n,2) to (n*2)
                         line = (cls, *seg, conf) if save_conf else (cls, *seg)  # label format
                         with open(f'{txt_path}.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
+
+                    if save_json and segment is not None and len(segment) >= 3:
+                        x_min, y_min = segment[:, 0].min(), segment[:, 1].min()
+                        x_max, y_max = segment[:, 0].max(), segment[:, 1].max()
+                        regions.append({
+                            'id': f'{p.stem}-{j}',
+                            'type': 'POLYGON',
+                            'tags': [names[int(cls)]],
+                            'boundingBox': {
+                                'height': float(y_max - y_min),
+                                'width': float(x_max - x_min),
+                                'left': float(x_min),
+                                'top': float(y_min),
+                            },
+                            'points': [{'x': float(x), 'y': float(y)} for x, y in segment.tolist()],
+                        })
 
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
                         annotator.box_label(xyxy, label, color=colors(c, True))
-                        # annotator.draw.polygon(segments[j], outline=colors(c, True), width=3)
+                        polygon = segment.round().astype(np.int32) if segment is not None else None
+                        if polygon is not None and len(polygon) >= 3:
+                            if annotator.pil:
+                                annotator.draw.polygon([tuple(p) for p in polygon], outline=colors(c, True))
+                            else:
+                                cv2.polylines(annotator.im, [polygon.reshape((-1, 1, 2))], True, colors(c, True), 2, cv2.LINE_AA)
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
+
+            if save_json:
+                json_path = save_dir / 'json' / f'{p.stem}.json'
+                payload = {
+                    'asset': {
+                        'format': p.suffix.lstrip('.'),
+                        'id': p.stem,
+                        'name': p.stem,
+                        'path': str(p),
+                        'size': {
+                            'width': im0.shape[1],
+                            'height': im0.shape[0],
+                        },
+                    },
+                    'regions': regions,
+                    'version': '2.2.0',
+                }
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(payload, f, indent=2)
 
             # Stream results
             im0 = annotator.result()
@@ -250,6 +301,7 @@ def parse_opt():
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='show results')
     parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
+    parser.add_argument('--save-json', action='store_true', help='save results to VOTT-style *.json')
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
     parser.add_argument('--save-crop', action='store_true', help='save cropped prediction boxes')
     parser.add_argument('--nosave', action='store_true', help='do not save images/videos')

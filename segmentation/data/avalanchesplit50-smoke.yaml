@@ -1,0 +1,10 @@
+# Tiny smoke-test dataset for segmentation training
+path: ../.data/yolo_split_smoke
+train: train-smoke.txt
+val: val-smoke.txt
+test: test-smoke.txt
+
+names:
+  0: glide
+  1: loose
+  2: slab

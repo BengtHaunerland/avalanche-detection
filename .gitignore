@@ -147,3 +147,6 @@ paper_yolo
 .data
 uibk_avalanches*
 *.dat
+.tmp/
+
+segmentation/smoke_seg/

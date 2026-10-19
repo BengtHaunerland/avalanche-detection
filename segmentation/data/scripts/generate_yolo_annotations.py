@@ -2,6 +2,7 @@ import json
 import os
 import random
 import shutil
+from pathlib import Path
 from typing import Dict
 
 #########
@@ -38,7 +39,7 @@ def _convert_label_file(output_path: str = None, annotation_path: str = None):
     img_size = ann_obj['asset']['size']
     img_size['height'], img_size['width']
 
-    bb_s = []
+    seg_s = []
 
     for region in ann_obj['regions']:
         if region['type'] != 'POLYGON':
@@ -47,31 +48,22 @@ def _convert_label_file(output_path: str = None, annotation_path: str = None):
         assert len(
             region['tags']) <= 1, f'Bounding box has multiple labels for {annotation_path}'
 
-        b_h = region['boundingBox']['height']
-        b_w = region['boundingBox']['width']
-        b_left = region['boundingBox']['left']
-        b_top = region['boundingBox']['top']
-
-        center_x = b_left + (b_w / 2.0)
-        center_y = b_top + (b_h / 2.0)
-
         class_idx = CLASS_TO_IDX[region['tags'][0]]
-        norm_cen_x = center_x / img_size['width']
-        norm_cen_y = center_y / img_size['height']
-        norm_b_w = b_w / img_size['width']
-        norm_b_h = b_h / img_size['height']
+        points = region['points']
+        if len(points) < 3:
+            raise ValueError(f'Unsupported polygon with fewer than 3 points in {annotation_path}')
 
-        bb_des = {'class': class_idx, 'center_x': norm_cen_x,
-                  'center_y': norm_cen_y, 'b_w': norm_b_w, 'b_h': norm_b_h}
+        segment = [str(class_idx)]
+        for point in points:
+            segment.append(str(point['x'] / img_size['width']))
+            segment.append(str(point['y'] / img_size['height']))
 
-        bb_s.append(bb_des)
+        seg_s.append(segment)
 
     # Write converted annotation to label file
     with open(output_path, 'w') as f:
-        for bb in bb_s:
-            bboxes = ' '.join([str(v) for v in [
-                              bb['class'], bb['center_x'], bb['center_y'], bb['b_w'], bb['b_h']]])
-            f.write(bboxes + '\n')
+        for seg in seg_s:
+            f.write(' '.join(seg) + '\n')
 
 
 def convert_annotation_files(data_dir: str = '.data'):
@@ -85,36 +77,36 @@ def convert_annotation_files(data_dir: str = '.data'):
         None.
     '''
     # Create empty annotation folders
-    ann_train_dir = os.path.join(data_dir, 'train/labels')
-    ann_test_dir = os.path.join(data_dir, 'test/labels')
+    ann_train_dir = Path(data_dir) / 'train' / 'labels'
+    ann_test_dir = Path(data_dir) / 'test' / 'labels'
 
     for folder in [ann_train_dir, ann_test_dir]:
         # Delete folder if it exists
-        if os.path.exists(folder):
+        if folder.exists():
             shutil.rmtree(folder)
         for l in LABELS:
-            label_folder = os.path.join(folder, l)
-            os.makedirs(label_folder, exist_ok=False)
+            label_folder = folder / l
+            label_folder.mkdir(parents=True, exist_ok=False)
 
-    for im_dir in [f'{data_dir}/train/images', f'{data_dir}/test/images']:
+    for im_dir in [Path(data_dir) / 'train' / 'images', Path(data_dir) / 'test' / 'images']:
         for root, _, filenames in os.walk(im_dir):
+            root_path = Path(root)
             for file_name in filenames:
                 im_name, file_ext = os.path.splitext(file_name)
                 assert file_ext == '.jpg', f'Bad file extension {file_name}'
 
                 # Copy image into destination directory
-                im_path = os.path.join(root, file_name)
-                label = im_path.split('/')[-2]
+                im_path = root_path / file_name
+                label = im_path.parent.name
 
                 assert label in LABELS, f'Unknown label {label}'
 
                 # Get annotation path from image path for non-NONE images and convert to YOLO format
                 if label != NONE:
-                    ann_path = f'{data_dir}/annotations/{label}/{im_name}.json'
-                    output_path = os.path.join(root, f'{im_name}.txt').replace(
-                        '/images/', '/labels/')
-                    _convert_label_file(output_path=output_path,
-                                        annotation_path=ann_path)
+                    ann_path = Path(data_dir) / 'annotations' / label / f'{im_name}.json'
+                    output_path = root_path.parent.parent / 'labels' / label / f'{im_name}.txt'
+                    _convert_label_file(output_path=str(output_path),
+                                        annotation_path=str(ann_path))
 
 
 def create_train_valid_split(train_valid_seed: int = None, data_dir: str = '.data', dest_dir: str = '.data/yolo_split'):

@@ -1,5 +1,6 @@
 import os
 import shutil
+from pathlib import Path
 
 ##############
 # Constants
@@ -42,14 +43,15 @@ if __name__ == '__main__':
 
     # Copy images into destination directory
     print('Generating train/test split...')
-    ims_directory = os.path.join(SOURCE_DIR, 'images')
+    ims_directory = Path(SOURCE_DIR) / 'images'
     for root, dirnames, filenames in os.walk(ims_directory):
         for file_name in filenames:
             assert file_name.lower().endswith(
                 '.jpg'), f'Unexpected file name {file_name}'
 
             # Get whether file is in the train or test split
-            path_tail = '/' + root.split('/')[-1] + f'/{file_name}'
+            root_path = Path(root)
+            path_tail = '/' + root_path.relative_to(ims_directory).as_posix() + f'/{file_name}'
             target_dir = None
             if path_tail in train_ims:
                 target_dir = DEST_TRAIN
@@ -60,7 +62,8 @@ if __name__ == '__main__':
                     f'Image {path_tail} not in train or test split')
 
             # Copy image to destination directory
-            dest_file = target_dir + path_tail
-            shutil.copyfile(f'{root}/{file_name}', dest_file)
+            dest_file = Path(target_dir + path_tail)
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(root_path / file_name, dest_file)
 
     print('Done')
