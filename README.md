@@ -47,6 +47,16 @@ python gui/segmentation_gui.py
 
 The GUI reads its defaults from [gui/segmentation_gui_config.yaml](gui/segmentation_gui_config.yaml). Training is disabled there by default so it cannot be started accidentally; enable it only if you want the training tab to launch `train.py`. The weight dropdown is also config-driven, so you can extend it without changing code.
 
+### Build an Executable
+
+To create a standalone Windows build, run:
+
+```powershell
+.\build_gui.ps1
+```
+
+The packaged app is written to `dist\AvalancheSegmentationToolkit\AvalancheSegmentationToolkit.exe`. It includes the GUI, the bundled segmentation scripts, the selected weights, and the config file needed to run the launcher in self-contained mode.
+
 ### Image Classification
 
 The image classification task is to determine whether a photograph contains any visible avalanches and classify the predominant avalanche release mechanism if so. Each image should be assigned a single label out of `loose`, `glide`, `slab`, or `none`.

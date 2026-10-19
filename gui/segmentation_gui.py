@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -28,11 +30,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_PATH = Path(__file__).with_name("segmentation_gui_config.yaml")
-PREDICT_SCRIPT = REPO_ROOT / "segmentation" / "segment" / "predict.py"
-TRAIN_SCRIPT = REPO_ROOT / "segmentation" / "segment" / "train.py"
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+APP_ROOT = Path(getattr(sys, "_MEIPASS", SOURCE_ROOT))
+CONFIG_PATH = APP_ROOT / "gui" / "segmentation_gui_config.yaml"
+PREDICT_SCRIPT = APP_ROOT / "segmentation" / "segment" / "predict.py"
+TRAIN_SCRIPT = APP_ROOT / "segmentation" / "segment" / "train.py"
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+DIALOG_ROOT = Path.home() if IS_FROZEN else SOURCE_ROOT
 
 DEFAULT_CONFIG: dict[str, object] = {
     "app": {"title": "Avalanche Segmentation Toolkit", "training_enabled": False},
@@ -112,7 +116,36 @@ def load_config() -> dict[str, object]:
 
 def resolve_repo_path(value: str | Path) -> Path:
     path = Path(value)
-    return path if path.is_absolute() else REPO_ROOT / path
+    return path if path.is_absolute() else APP_ROOT / path
+
+
+def build_launcher_command(mode_flag: str, command_arguments: list[str]) -> list[str]:
+    if IS_FROZEN:
+        return [sys.executable, mode_flag, *command_arguments]
+    return [sys.executable, str(Path(__file__).resolve()), mode_flag, *command_arguments]
+
+
+def run_worker_module(module_name: str, remaining_arguments: list[str]) -> None:
+    segmentation_root = APP_ROOT / "segmentation"
+    if str(segmentation_root) not in sys.path:
+        sys.path.insert(0, str(segmentation_root))
+
+    original_argv = sys.argv[:]
+    try:
+        sys.argv = [module_name, *remaining_arguments]
+
+        if module_name == "segment.predict":
+            from segment.predict import main as worker_main
+            from segment.predict import parse_opt as worker_parse_opt
+        elif module_name == "segment.train":
+            from segment.train import main as worker_main
+            from segment.train import parse_opt as worker_parse_opt
+        else:
+            raise ValueError(f"Unsupported worker module: {module_name}")
+
+        worker_main(worker_parse_opt())
+    finally:
+        sys.argv = original_argv
 
 
 def command_text(parts: list[str]) -> str:
@@ -327,7 +360,7 @@ class SegmentationWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select image",
-            str(REPO_ROOT),
+            str(DIALOG_ROOT),
             "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff);;All files (*.*)",
         )
         if file_path:
@@ -337,7 +370,7 @@ class SegmentationWindow(QMainWindow):
             self._update_predict_preview()
 
     def _browse_project(self) -> None:
-        directory = QFileDialog.getExistingDirectory(self, "Select output folder", str(REPO_ROOT))
+        directory = QFileDialog.getExistingDirectory(self, "Select output folder", str(DIALOG_ROOT))
         if directory:
             self.project_edit.setText(directory)
 
@@ -385,6 +418,9 @@ class SegmentationWindow(QMainWindow):
             command.append("--save-txt")
         return command
 
+    def _predict_launch_command(self) -> list[str]:
+        return build_launcher_command("--run-predict", self._predict_command()[2:])
+
     def _training_command(self) -> list[str]:
         profile_key = str(self.training_profile_combo.currentData())
         split = str(self.training_split_combo.currentData())
@@ -416,6 +452,9 @@ class SegmentationWindow(QMainWindow):
             command.append("--noval")
         return command
 
+    def _training_launch_command(self) -> list[str]:
+        return build_launcher_command("--run-train", self._training_command()[2:])
+
     def _update_predict_preview(self) -> None:
         self.predict_preview.setPlainText(command_text(self._predict_command()))
 
@@ -441,14 +480,14 @@ class SegmentationWindow(QMainWindow):
         self._append_log(f"{title}: {command_text(command)}")
         self.process.setProgram(command[0])
         self.process.setArguments(command[1:])
-        self.process.setWorkingDirectory(str(REPO_ROOT))
+        self.process.setWorkingDirectory(str(APP_ROOT))
         self.process.start()
 
     def _run_predict(self) -> None:
         if not self.source_edit.text().strip():
             QMessageBox.warning(self, "Missing source", "Choose an image before running segmentation.")
             return
-        self._start_process(self._predict_command(), "Segmentation")
+        self._start_process(self._predict_launch_command(), "Segmentation")
 
     def _run_training(self) -> None:
         if not bool(self.config["app"]["training_enabled"]):  # type: ignore[index]
@@ -458,7 +497,7 @@ class SegmentationWindow(QMainWindow):
                 "Training is disabled by configuration. Enable it in segmentation_gui_config.yaml first.",
             )
             return
-        self._start_process(self._training_command(), "Training")
+        self._start_process(self._training_launch_command(), "Training")
 
     def _append_log(self, text: str) -> None:
         self.log_window.appendPlainText(text)
@@ -476,6 +515,17 @@ class SegmentationWindow(QMainWindow):
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--run-predict", action="store_true")
+    parser.add_argument("--run-train", action="store_true")
+    worker_options, remaining_arguments = parser.parse_known_args()
+    if worker_options.run_predict:
+        run_worker_module("segment.predict", remaining_arguments)
+        return
+    if worker_options.run_train:
+        run_worker_module("segment.train", remaining_arguments)
+        return
+
     app = QApplication(sys.argv)
     window = SegmentationWindow()
     window.show()

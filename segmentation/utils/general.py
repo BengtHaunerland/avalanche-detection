@@ -270,13 +270,19 @@ def get_latest_run(search_dir='.'):
 
 def file_age(path=__file__):
     # Return days since last file update
-    dt = (datetime.now() - datetime.fromtimestamp(Path(path).stat().st_mtime))  # delta
+    path = Path(path)
+    if not path.exists():
+        return 0
+    dt = (datetime.now() - datetime.fromtimestamp(path.stat().st_mtime))  # delta
     return dt.days  # + dt.seconds / 86400  # fractional days
 
 
 def file_date(path=__file__):
     # Return human-readable file modification date, i.e. '2021-3-26'
-    t = datetime.fromtimestamp(Path(path).stat().st_mtime)
+    path = Path(path)
+    if not path.exists():
+        return 'unknown'
+    t = datetime.fromtimestamp(path.stat().st_mtime)
     return f'{t.year}-{t.month}-{t.day}'
 
 
