@@ -37,6 +37,16 @@ This repository contains code to train and evaluate ResNet, VGG, and YOLOv3 mode
 
 We support two tasks: [Image Classification](#image-classification) to classify entire images and [Avalanche Segmentation](#avalanche-segmentation) to identify each avalanche in an image.
 
+### Qt Segmentation GUI
+
+The repository now includes a Qt front end for segmentation and training presets. Start it from the repo root with:
+
+```
+python gui/segmentation_gui.py
+```
+
+The GUI reads its defaults from [gui/segmentation_gui_config.yaml](gui/segmentation_gui_config.yaml). Training is disabled there by default so it cannot be started accidentally; enable it only if you want the training tab to launch `train.py`. The weight dropdown is also config-driven, so you can extend it without changing code.
+
 ### Image Classification
 
 The image classification task is to determine whether a photograph contains any visible avalanches and classify the predominant avalanche release mechanism if so. Each image should be assigned a single label out of `loose`, `glide`, `slab`, or `none`.

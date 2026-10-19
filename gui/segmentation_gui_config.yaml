@@ -1,0 +1,49 @@
+app:
+  title: Avalanche Segmentation Toolkit
+  training_enabled: false
+
+inference:
+  default_project: segmentation/runs/predict-seg
+  default_name_template: compare_{stem}_full
+  default_conf_threshold: 0.2
+  default_save_json: true
+  default_save_txt: true
+  weights:
+    - label: full50 best.pt
+      path: segmentation/smoke_seg/full50/weights/best.pt
+    - label: full150 best.pt
+      path: segmentation/smoke_seg/full150/weights/best.pt
+
+training:
+  base_weights: segmentation/yolov5n-seg.pt
+  img_size: 320
+  batch_size: 2
+  workers: 0
+  cache: ram
+  freeze: 10
+  profiles:
+    full:
+      label: Full
+      epochs: 180
+      noval: false
+    medium:
+      label: Medium
+      epochs: 2
+      noval: true
+    small:
+      label: Small
+      epochs: 1
+      noval: true
+  splits:
+    50:
+      full: segmentation/data/avalanchesplit50.yaml
+      medium: segmentation/data/avalanchesplit50-medium.yaml
+      small: segmentation/data/avalanchesplit50-smoke.yaml
+    100:
+      full: segmentation/data/avalanchesplit100.yaml
+      medium: segmentation/data/avalanchesplit100.yaml
+      small: segmentation/data/avalanchesplit100.yaml
+    150:
+      full: segmentation/data/avalanchesplit150.yaml
+      medium: segmentation/data/avalanchesplit150.yaml
+      small: segmentation/data/avalanchesplit150.yaml
